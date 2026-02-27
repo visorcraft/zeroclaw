@@ -53,8 +53,8 @@ mod inner {
     };
     use wasmtime::{Config as WtConfig, Engine, Linker, Module, Store};
     use wasmtime_wasi::{
-        pipe::{MemoryInputPipe, MemoryOutputPipe},
-        preview1::{self, WasiP1Ctx},
+        p1::{self, WasiP1Ctx},
+        p2::pipe::{MemoryInputPipe, MemoryOutputPipe},
         WasiCtxBuilder,
     };
 
@@ -113,7 +113,7 @@ mod inner {
             store.set_epoch_deadline(WASM_TIMEOUT_SECS);
 
             let mut linker: Linker<WasiP1Ctx> = Linker::new(&self.engine);
-            preview1::add_to_linker_sync(&mut linker, |ctx| ctx)
+            p1::add_to_linker_sync(&mut linker, |ctx| ctx)
                 .context("failed to add WASI to linker")?;
 
             let instance = linker.instantiate(&mut store, &self.module)?;
@@ -135,7 +135,7 @@ mod inner {
             let call_result = instance
                 .get_typed_func::<(), ()>(&mut store, "_start")
                 .context("WASM module must export '_start' (compile as a WASI binary)")
-                .and_then(|start| {
+                .and_then(|start: wasmtime::TypedFunc<(), ()>| {
                     start
                         .call(&mut store, ())
                         .context("WASM execution failed or timed out")

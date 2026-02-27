@@ -13,6 +13,25 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+ALLOWED_HTTP_SCHEMES = {"http", "https"}
+
+
+def validate_http_url(url: str) -> tuple[bool, str]:
+    try:
+        parsed = urllib.parse.urlparse(url)
+    except Exception as exc:  # noqa: BLE001
+        return False, f"invalid URL parse: {exc}"
+
+    scheme = (parsed.scheme or "").lower()
+    if scheme not in ALLOWED_HTTP_SCHEMES:
+        return False, f"unsupported URL scheme `{scheme}`"
+
+    host = (parsed.hostname or "").lower()
+    if not host:
+        return False, "missing URL host"
+
+    return True, "ok"
+
 
 def dns_check(hostname: str, port: int) -> tuple[bool, str]:
     try:
@@ -23,6 +42,10 @@ def dns_check(hostname: str, port: int) -> tuple[bool, str]:
 
 
 def http_probe(url: str, method: str, timeout_s: int) -> tuple[bool, int | None, str, int]:
+    ok, reason = validate_http_url(url)
+    if not ok:
+        return (False, None, f"blocked_url:{reason}", 0)
+
     req = urllib.request.Request(url=url, method=method, headers={"User-Agent": "zeroclaw-ci-probe/1.0"})
     start = time.perf_counter()
     try:

@@ -13,6 +13,29 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+ALLOWED_HTTP_SCHEMES = {"https"}
+GHCR_ALLOWED_HOSTS = {"ghcr.io"}
+
+
+def validate_http_url(url: str, *, allowed_hosts: set[str] | None = None) -> tuple[bool, str]:
+    try:
+        parsed = urllib.parse.urlparse(url)
+    except Exception as exc:  # noqa: BLE001
+        return False, f"invalid URL parse: {exc}"
+
+    scheme = (parsed.scheme or "").lower()
+    if scheme not in ALLOWED_HTTP_SCHEMES:
+        return False, f"unsupported URL scheme `{scheme}`"
+
+    host = (parsed.hostname or "").lower()
+    if not host:
+        return False, "missing URL host"
+
+    if allowed_hosts is not None and host not in allowed_hosts:
+        return False, f"URL host `{host}` is not in allowlist"
+
+    return True, "ok"
+
 POLICY_SCHEMA = "zeroclaw.ghcr-tag-policy.v1"
 ACCEPT_HEADER = "application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.v2+json"
 
@@ -135,6 +158,9 @@ def resolve_tags(policy: dict[str, object], *, release_tag: str, sha: str) -> tu
 def fetch_ghcr_token(repository: str) -> tuple[str | None, str | None]:
     qs = urllib.parse.urlencode({"scope": f"repository:{repository}:pull"})
     url = f"https://ghcr.io/token?{qs}"
+    ok, reason = validate_http_url(url, allowed_hosts=GHCR_ALLOWED_HOSTS)
+    if not ok:
+        return None, f"Refusing GHCR token URL `{url}`: {reason}"
     try:
         with urllib.request.urlopen(url, timeout=20) as response:
             payload = json.loads(response.read().decode("utf-8"))
@@ -149,6 +175,17 @@ def fetch_ghcr_token(repository: str) -> tuple[str | None, str | None]:
 
 def fetch_manifest(repository: str, tag: str, token: str) -> dict[str, object]:
     url = f"https://ghcr.io/v2/{repository}/manifests/{urllib.parse.quote(tag, safe='')}"
+    ok, reason = validate_http_url(url, allowed_hosts=GHCR_ALLOWED_HOSTS)
+    if not ok:
+        return {
+            "tag": tag,
+            "url": url,
+            "status_code": 0,
+            "digest": "",
+            "content_type": "",
+            "error": f"blocked_url: {reason}",
+            "body_preview": "",
+        }
     request = urllib.request.Request(
         url,
         headers={
